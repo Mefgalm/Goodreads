@@ -9,7 +9,6 @@
             [manifold.deferred :as d]))
 
 ; key: U72x1vCYKt4nFpQLhJ3g
-; secret: tBF5p5i2aIkvNo3GHOwj8DoVty0ZvtO1iv8R7V94PM
 
 (defn client-get [url]
   (client/get url {:cookie-policy :standard}))
