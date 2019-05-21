@@ -11,13 +11,14 @@
 ; key: U72x1vCYKt4nFpQLhJ3g
 ; secret: tBF5p5i2aIkvNo3GHOwj8DoVty0ZvtO1iv8R7V94PM
 
+(defn client-get [url]
+  (client/get url {:cookie-policy :standard}))
+
 (defn goodreads-get-books [token user-id]
-  (client/get (str "https://www.goodreads.com/review/list?key=" token "&v=2&id=" user-id)
-              {:cookie-policy :standard}))
+  (client-get (str "https://www.goodreads.com/review/list?key=" token "&v=2&id=" user-id)))
 
 (defn goodreads-book-info [token book-id]
-  (client/get (str "https://www.goodreads.com/book/show/" book-id ".XML?key=" token)
-              {:cookie-policy :standard}))
+  (client-get (str "https://www.goodreads.com/book/show/" book-id ".XML?key=" token)))
 
 (defn zip-str [s]
   (zip/xml-zip
@@ -51,32 +52,30 @@
     (map book-status (zx/xml-> books-zip :reviews :review))))
 
 (defn similar-provider [token book-ids]
-  (flatten (map #(similar-book token %) book-ids)))
+  (flatten (pmap #(similar-book token %) book-ids)))
 
 (defn recomendations
-  [{:keys [token user-id]}]
+  [{:keys [token user-id number-books]}]
   (let [user-books (user-books-provider token user-id)
         user-readed-book-ids (->> user-books
                                   (filter #(= (:status %) :read))
                                   (map :id))
-        not-readed (fn [{id :id}] (not-any? #(= % id) user-readed-book-ids))]
-    (d/success-deferred (->> user-books
-                             (map :id)
-                             (similar-provider token)
-                             (filter not-readed)
-                             (sort-by :average-rating >)
-                             (take 10)))))
+        not-read (fn [{id :id}] (not-any? #(= % id) user-readed-book-ids))]
+    (d/future (->> user-books
+                   (map :id)
+                   (similar-provider token)
+                   (filter not-read)
+                   (sort-by :average-rating >)
+                   (take number-books)))))
 
-(def cli-options [["-t"
-                   "--timeout-ms"
-                   "Wait before finished"
-                   :default 5000
-                   :parse-fn #(Integer/parseInt %)]
-                  ["-n"
-                   "--number-books"
-                   "How many books do you want to recommend"
+(def cli-options [["-n" "--number-books NUMBER" "How many books do you want to recommend"
                    :default 10
-                   :parse-fn #(Integer/parseInt %)]
+                   :parse-fn #(Integer/parseInt %)
+                   :validate [#(< 0 % 500) "Must be a number between 0 and 500"]]
+                  ["-t" "--timeout-ms MILLISECONDS" "Wait before finished"
+                   :default 10000
+                   :parse-fn #(Integer/parseInt %)
+                   :validate [#(< 0 % 300000) "Must be a number between 0 and 300000"]]
                   ["-h" "--help"]])
 
 (defn book->str [{:keys [title link author-names]}]
@@ -92,7 +91,7 @@
       (some? errors) (do (println errors) (System/exit 1))
       (empty? args) (do (println "Please, specify user's token") (System/exit 1))
       :else (let [[token user-id] args
-                  config {:token token :user-id user-id}
+                  config {:token token :user-id user-id :number-books (:number-books options)}
                   books (-> (recomendations config)
                             (d/timeout! (:timeout-ms options) ::timeout)
                             deref)]
